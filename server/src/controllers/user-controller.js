@@ -3,7 +3,7 @@ import { User } from "../models/user-models.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { uploadOnCloudinary } from "../utils/Cloudinary.js";
-
+import jwt from "jsonwebtoken";
 //generate Tokens
 const generateJWTTokenAndRefreshToken = async (userid) => {
   try {
@@ -118,4 +118,39 @@ const logout = asyncHandler(async (req, res) => {
     .clearCookie("refToken", options)
     .json(new ApiResponse(200, user, "Logout Successfully!"));
 });
-export { regUser, loginUser, logout };
+
+//Refresh Token
+const genRefTokens = asyncHandler(async (req, res) => {
+  try {
+    const refToken = req.cookies.refreshToken || req.body.refreshToken;
+    if (!refToken) throw new ApiError(401, "Unauthorized request !");
+    const user = jwt.verify(refToken, process.env.REFRESH_TOKEN);
+    const userinfo = await User.findById(user._id);
+    if (!userinfo) throw new ApiError(401, "Invalid Refresh Token!");
+    if (refToken !== userinfo.refreshToken)
+      throw new ApiError(401, "Token is not valid!");
+    const { genJwtToken, genRefToken } = await generateJWTTokenAndRefreshToken(
+      userinfo._id
+    );
+    const options = {
+      httpOnly: true,
+      server: true,
+    };
+    res
+      .status(200)
+      .cookie("jwtToken", genJwtToken, options)
+      .cookie("refToken", genRefToken, options)
+      .json(
+        ApiResponse(
+          200,
+          userinfo,
+          genJwtToken,
+          genRefToken,
+          "Refresh Token generated Successfully!"
+        )
+      );
+  } catch (error) {
+    throw new ApiError(401, error?.message, "Invalid Refresh Token !");
+  }
+});
+export { regUser, loginUser, logout, genRefTokens };

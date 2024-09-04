@@ -60,7 +60,7 @@ const updateVideo = asyncHandler(async (req, res) => {
   video.title = title;
   video.description = description;
   video.thumbnail = uploadThumbnail?.url;
-  const updateVideo = await video.save({ validateBeforeSave: false });
+  const updateVideo = await video.save({ validateBeforeSave: true });
   res
     .status(200)
     .json(new ApiResponse(200, updateVideo, "Video Updated Successfully!"));

@@ -23,4 +23,6 @@ import commentRoutes from "./routers/comment-routes.js";
 app.use("/api/v1/comments", commentRoutes);
 import likeRoutes from "./routers/like-routes.js";
 app.use("/api/v1/likes", likeRoutes);
+import playlistRoute from "./routers/playlist-routes.js";
+app.use("/api/v1/playlist", playlistRoute);
 export { app };

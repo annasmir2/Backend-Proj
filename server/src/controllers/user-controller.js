@@ -12,7 +12,7 @@ const generateJWTTokenAndRefreshToken = async (userid) => {
     const genJwtToken = user.generateJWTToken();
     const genRefToken = user.generateRefToken();
     user.refreshToken = genRefToken;
-    await user.save({ validateBeforeSave: false });
+    await user.save({ validateBeforeSave: true });
     return { genJwtToken, genRefToken };
   } catch (error) {
     throw new ApiError(500, "Something went wrong while generating tokens!");

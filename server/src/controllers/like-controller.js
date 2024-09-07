@@ -4,6 +4,8 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { Video } from "../models/video-models.js";
 import { Like } from "../models/likes-models.js";
 import { Comment } from "../models/comments-models.js";
+import { User } from "../models/user-models.js";
+import mongoose from "mongoose";
 
 const del = async (_id) => {
   try {
@@ -119,4 +121,54 @@ const toggleComment = asyncHandler(async (req, res) => {
   }
 });
 
-export { toggleLikeVideo, toggleComment };
+//get liked video
+const getLikedVidoes = asyncHandler(async (req, res) => {
+  const getLikedVideo = await User.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(req.user._id),
+      },
+    },
+    {
+      $lookup: {
+        from: "likes",
+        localField: "_id",
+        foreignField: "likedBy",
+        as: "LikedVideos",
+      },
+    },
+    {
+      $addFields: {
+        totalLikedVideos: {
+          $size: "$LikedVideos",
+        },
+      },
+    },
+    {
+      $project: {
+        fullName: 1,
+        username: 1,
+        subscriberCounts: 1,
+        channelsSubsribedToCount: 1,
+        isSubscribed: 1,
+        avatar: 1,
+        coverImage: 1,
+        totalLikedVideos: 1,
+        LikedVideos: 1,
+      },
+    },
+  ]);
+  // console.log(getLikedVideo[0].LikedVideos);
+  const filterLikedVideos = getLikedVideo[0].LikedVideos.filter(
+    (item) => item.video 
+  );
+  getLikedVideo[0].totalLikedVideos = filterLikedVideos.length;
+  getLikedVideo[0].LikedVideos = filterLikedVideos;
+  if (filterLikedVideos.length === 0)
+    throw new ApiError(404, "No Liked Videos Found!");
+  res
+    .status(200)
+    .json(new ApiResponse(200, getLikedVideo, "Liked Videos are Here!"));
+});
+
+export { toggleLikeVideo, toggleComment, getLikedVidoes };

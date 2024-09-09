@@ -25,4 +25,6 @@ import likeRoutes from "./routers/like-routes.js";
 app.use("/api/v1/likes", likeRoutes);
 import playlistRoute from "./routers/playlist-routes.js";
 app.use("/api/v1/playlist", playlistRoute);
+import tweetRoute from "./routers/tweet-routes.js";
+app.use("/api/v1/tweet", tweetRoute);
 export { app };

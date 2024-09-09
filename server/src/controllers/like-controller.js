@@ -6,6 +6,7 @@ import { Like } from "../models/likes-models.js";
 import { Comment } from "../models/comments-models.js";
 import { User } from "../models/user-models.js";
 import mongoose from "mongoose";
+import { Tweet } from "../models/tweets-models.js";
 
 const del = async (_id) => {
   try {
@@ -121,6 +122,61 @@ const toggleComment = asyncHandler(async (req, res) => {
   }
 });
 
+//toggle like tweet
+const toggleTweet = asyncHandler(async (req, res) => {
+  const { tweetId } = req.params;
+  if (!tweetId) throw new ApiError(400, "Tweet id is missing!");
+  const findTweet = await Tweet.findById(tweetId);
+  if (!findTweet) throw new ApiError(404, "Tweet Not Exist!");
+  let tweetLike = await Like.findOne({
+    likedBy: req.user._id,
+    tweet: findTweet._id,
+  });
+  if (tweetLike) {
+    if (!tweetLike.likedBy.equals(req.user._id)) {
+      throw new ApiError(401, "Unauthorized request!");
+    }
+    const delUnlike = await del(tweetLike._id);
+    res
+      .status(200)
+      .json(new ApiResponse(200, delUnlike, "Unlike tweet successfully!"));
+  } else {
+    const findNewTweet = await Like.findOne({
+      tweet: { $ne: findTweet._id },
+    });
+    if (findNewTweet) {
+      const createLike = await Like.create({
+        tweet: findTweet._id,
+        likedBy: req.user._id,
+      });
+      if (!createLike) throw new ApiError(400, "Creation Failed!");
+      res
+        .status(201)
+        .json(
+          new ApiResponse(
+            201,
+            createLike,
+            "Like Added on Tweet Successfully!"
+          )
+        );
+    } else {
+      const createLike = await Like.create({
+        tweet: findTweet._id,
+        likedBy: req.user._id,
+      });
+      if (!createLike) throw new ApiError(400, "Creation Failed!");
+      res
+        .status(201)
+        .json(
+          new ApiResponse(
+            201,
+            createLike,
+            "Like Added on Tweet Successfully!"
+          )
+        );
+    }
+  }
+});
 //get liked video
 const getLikedVidoes = asyncHandler(async (req, res) => {
   const getLikedVideo = await User.aggregate([
@@ -171,4 +227,4 @@ const getLikedVidoes = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, getLikedVideo, "Liked Videos are Here!"));
 });
 
-export { toggleLikeVideo, toggleComment, getLikedVidoes };
+export { toggleLikeVideo, toggleComment, getLikedVidoes,toggleTweet };

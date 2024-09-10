@@ -295,7 +295,7 @@ const getUserChannelProf = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(
-      new ApiResponse(200, channel[0], "User Channel Fetched Successfully!")
+      new ApiResponse(200, channel, "User Channel Fetched Successfully!")
     );
 });
 

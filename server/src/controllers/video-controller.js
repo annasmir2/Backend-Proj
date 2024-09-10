@@ -117,48 +117,47 @@ const togglePublishedVideo = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, updateToggle, "Toggle the status!"));
 });
 
-//get all videos
-// const getAllVideos = asyncHandler(async (req, res) => {
-//   const { userid, query, sorttype = 'desc', sortby = 'createdAt', page = 1, limit = 10 } = req.query;
+ const getAllVideos = asyncHandler(async (req, res) => {
+  const {
+    query = "",
+    sortBy = "createdAt",
+    sortOrder = "desc",
+    page = 1,
+    limit = 10,
+  } = req.query;
+  const searchQuery = {
+    isPublished: true,
+    $or: [
+      { title: { $regex: query, $options: "i" } },
+      { description: { $regex: query, $options: "i" } },
+    ],
+  };
+  const options = {
+    page: parseInt(page),
+    limit: parseInt(limit),
+    sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 },
+  };
 
-//   // Build the filter object
-//   let filter = {};
-//   if (userid) {
-//     try {
-//       const userIdObject = new mongoose.Types.ObjectId(userid); // Convert userid to ObjectId
-//       filter.owner = userIdObject;
-//     } catch (error) {
-//       return res.status(400).json(new ApiResponse(400, null, "Invalid user ID"));
-//     }
-//   }
-//   if (query) {
-//     filter.title = { $regex: query, $options: 'i' }; // Case-insensitive search
-//   }
+  const videos = await Video.aggregatePaginate(
+    Video.aggregate([{ $match: searchQuery }]),
+    options
+  );
 
-//   // Calculate the number of documents to skip for pagination
-//   const skip = (page - 1) * limit;
-
-//   // Build the sort object
-//   let sort = {};
-//   sort[sortby] = sorttype === 'asc' ? 1 : -1;
-
-//   // Execute the query
-//   const videos = await Video.find(filter)
-//     .sort(sort)
-//     .skip(skip)
-//     .limit(parseInt(limit));
-
-//   // Get the total number of videos matching the filter
-//   const totalVideos = await Video.countDocuments(filter);
-
-//   // Return the response with pagination info
-//   res.status(200).json(new ApiResponse(200, {
-//     videos,
-//     currentPage: page,
-//     totalPages: Math.ceil(totalVideos / limit),
-//     totalVideos
-//   }, "Videos Retrieved Successfully!"));
-// });
+  res.status(200).json({
+    success: true,
+    data: videos.docs,
+    totalVideos: videos.totalDocs,
+    totalPages: videos.totalPages,
+    currentPage: videos.page,
+    hasNextPage: videos.hasNextPage,
+    hasPrevPage: videos.hasPrevPage,
+  });
+  res.status(500).json({
+    success: false,
+    message: "Error fetching videos",
+    error: error.message,
+  });
+});
 
 export {
   uploadVideo,
@@ -167,5 +166,5 @@ export {
   updateVideoFile,
   deleteVideo,
   togglePublishedVideo,
-  // getAllVideos
+  getAllVideos
 };

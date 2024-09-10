@@ -27,4 +27,8 @@ import playlistRoute from "./routers/playlist-routes.js";
 app.use("/api/v1/playlist", playlistRoute);
 import tweetRoute from "./routers/tweet-routes.js";
 app.use("/api/v1/tweet", tweetRoute);
+import subscriptionRoute from "./routers/subscription-routes.js";
+app.use("/api/v1/subscription", subscriptionRoute);
+
+
 export { app };

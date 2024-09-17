@@ -5,6 +5,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { uploadOnCloudinary } from "../utils/Cloudinary.js";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import { redis } from "../client.js";
 //generate Tokens
 const generateJWTTokenAndRefreshToken = async (userid) => {
   try {
@@ -25,41 +26,83 @@ const regUser = asyncHandler(async (req, res) => {
   if (
     [fullName, username, email, password].some((field) => field?.trim() === "")
   ) {
-    throw new ApiError(400, "Empty Fields.Fill the form properly!");
+    throw new ApiError(400, "Empty Fields. Fill the form properly!");
   }
-  const userExist = await User.findOne({ $or: [{ email }, { username }] });
-  if (userExist) throw new ApiError(409, "Username or Email already Exist!");
-  const avatarPath = req.files?.avatar[0]?.path;
-  let coverImagePath;
-  if (
-    req.files &&
-    Array.isArray(req.files.coverImage) &&
-    req.files.coverImage.length > 0
-  ) {
-    coverImagePath = req.files.coverImage[0].path;
-  }
-  if (!avatarPath) throw new ApiError(400, "Avatar Image is Missing!");
-  const uploadAvatar = await uploadOnCloudinary(avatarPath);
-  const uploadCoverImage = await uploadOnCloudinary(coverImagePath);
 
-  if (!uploadAvatar) throw new ApiError(400, "Avatar Image is required!");
+  redis.get(email, async (err, redisData) => {
+    if (err) {
+      throw new ApiError(500, "Redis Error in Register!");
+    }
 
-  const register = await User.create({
-    fullName,
-    avatar: uploadAvatar.url,
-    coverImage: uploadCoverImage?.url || "",
-    email,
-    password,
-    username: username.toLowerCase(),
+    if (redisData) {
+      const parsedData = JSON.parse(redisData);
+      console.log(parsedData); 
+
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            parsedData,
+            "Username or Email already exists in Redis!"
+          )
+        );
+    } else {
+      const userExist = await User.findOne({ $or: [{ email }, { username }] });
+      if (userExist) {
+        return res
+          .status(409)
+          .json(new ApiError(409, "Username or Email already exists!"));
+      }
+      const avatarPath = req.files?.avatar[0]?.path;
+      let coverImagePath;
+      if (req.files?.coverImage?.length > 0) {
+        coverImagePath = req.files.coverImage[0].path;
+      }
+
+      if (!avatarPath) {
+        throw new ApiError(400, "Avatar image is missing!");
+      }
+
+      const uploadAvatar = await uploadOnCloudinary(avatarPath);
+      const uploadCoverImage = coverImagePath
+        ? await uploadOnCloudinary(coverImagePath)
+        : null;
+
+      if (!uploadAvatar) {
+        throw new ApiError(400, "Failed to upload avatar image!");
+      }
+      const register = await User.create({
+        fullName,
+        avatar: uploadAvatar.url,
+        coverImage: uploadCoverImage?.url || "",
+        email,
+        password,
+        username: username.toLowerCase(),
+      });
+
+      const user = await User.findById(register._id).select(
+        "-password -refreshToken "
+      );
+      if (!user) {
+        throw new ApiError(
+          500,
+          "Something went wrong while registering the user."
+        );
+      }
+
+      redis.setex(
+        user.email,
+        20,
+        JSON.stringify(user)
+      );
+      return res
+        .status(201)
+        .json(
+          new ApiResponse(201, user, "User has been created successfully!")
+        );
+    }
   });
-
-  const user = await User.findById(register._id).select(
-    "-password -refreshToken"
-  );
-  if (!user) throw new ApiError(500, "Something went wrong while reg user");
-  return res
-    .status(201)
-    .json(new ApiResponse(200, user, "User has Been Created Successfully!"));
 });
 
 //Login user
@@ -84,6 +127,7 @@ const loginUser = asyncHandler(async (req, res) => {
     httpOnly: true,
     secure: true,
   };
+  redis.setex(`session:${chkUser._id}`, 3600, JSON.stringify({ jwtToken: genJwtToken, refToken: genRefToken }));
   return res
     .status(200)
     .cookie("jwtToken", genJwtToken, options)
@@ -113,7 +157,12 @@ const logout = asyncHandler(async (req, res) => {
     httpOnly: true,
     secure: true,
   };
-  return res
+  redis.del(`session:${_id}`, (err) => {
+    if (err) {
+      console.error('Redis Error during logout:', err);
+    }
+  });
+    return res
     .status(200)
     .clearCookie("jwtToken", options)
     .clearCookie("refToken", options)
@@ -123,7 +172,10 @@ const logout = asyncHandler(async (req, res) => {
 //Refresh Token
 const genRefTokens = asyncHandler(async (req, res) => {
   try {
-    const refToken = req.cookies.refreshToken || req.body.refreshToken || req.headers.authorization?.split(" ")[1];
+    const refToken =
+      req.cookies.refreshToken ||
+      req.body.refreshToken ||
+      req.headers.authorization?.split(" ")[1];
     if (!refToken) throw new ApiError(401, "Unauthorized request !");
     const user = jwt.verify(refToken, process.env.REFRESH_TOKEN);
     const userinfo = await User.findById(user._id);
@@ -190,7 +242,7 @@ const updateUser = asyncHandler(async (req, res) => {
 //files update
 //Avatar Update
 const avatarUpdate = asyncHandler(async (req, res) => {
-  const  avatar = req.file?.path;
+  const avatar = req.file?.path;
   if (!avatar) throw new ApiError(400, "Avatar Image is required!");
   const uploadAvatar = await uploadOnCloudinary(avatar);
   if (!uploadAvatar.url) throw new ApiError(400, "Avatar Image is required!");
@@ -207,7 +259,7 @@ const avatarUpdate = asyncHandler(async (req, res) => {
 
 //CoverImage update
 const coverImageUpdate = asyncHandler(async (req, res) => {
-  const  coverImage  = req.file?.path;
+  const coverImage = req.file?.path;
   if (!coverImage) throw new ApiError(400, "Cover Image is required!");
   const uploadCoverImage = await uploadOnCloudinary(avatar);
   if (!uploadCoverImage.url)
@@ -235,69 +287,85 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 
 //get chnnel info
 const getUserChannelProf = asyncHandler(async (req, res) => {
-  const username  = req.param;
+  const username = req.params.username;
   if (!username) throw new ApiError(400, "Username is missing!");
-  const channel = await User.aggregate([
-    {
-      $match: {
-        username: username,
-      },
-    },
-    {
-      $lookup: {
-        from: "subscriptions",
-        localField: "_id",
-        foreignField: "channel",
-        as: "subscribers",
-      },
-    },
-    {
-      $lookup: {
-        from: "subscriptions",
-        localField: "_id",
-        foreignField: "subscribers",
-        as: "subscriberdTo",
-      },
-    },
-    {
-      $addFields: {
-        subscriberCounts: {
-          $size: "$subscribers",
-        },
-        channelsSubsribedToCount: {
-          $size: "$subscriberdTo",
-        },
-        isSubscribed: {
-          $cond: {
-            if: {
-              $in: [req.user?._id, "$subscribers.subscribers"],
-            },
-            then: true,
-            else: false,
+  const redisKey = `channel:${username}`;
+redis.get(redisKey, async (err, redisData) => {
+    if (err) {
+      throw new ApiError(500, "Redis Error!");
+    }
+    if (redisData) {
+      return res.status(200).json(
+        new ApiResponse(200, JSON.parse(redisData), "User Channel Fetched Successfully from Redis!")
+      );
+    } else {
+      const channel = await User.aggregate([
+        {
+          $match: {
+            username: username,
           },
         },
-      },
-    },
-    {
-      $project: {
-        fullName: 1,
-        username: 1,
-        subscriberCounts: 1,
-        channelsSubsribedToCount: 1,
-        isSubscribed: 1,
-        avatar: 1,
-        coverImage: 1,
-      },
-    },
-  ]);
-  if (!channel?.length) throw new ApiError(404, "Channel not exisit");
-  console.log(channel);
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(200, channel, "User Channel Fetched Successfully!")
-    );
+        {
+          $lookup: {
+            from: "subscriptions",
+            localField: "_id",
+            foreignField: "channel",
+            as: "subscribers",
+          },
+        },
+        {
+          $lookup: {
+            from: "subscriptions",
+            localField: "_id",
+            foreignField: "subscribers",
+            as: "subscriberdTo",
+          },
+        },
+        {
+          $addFields: {
+            subscriberCounts: {
+              $size: "$subscribers",
+            },
+            channelsSubsribedToCount: {
+              $size: "$subscriberdTo",
+            },
+            isSubscribed: {
+              $cond: {
+                if: {
+                  $in: [req.user?._id, "$subscribers.subscribers"],
+                },
+                then: true,
+                else: false,
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            fullName: 1,
+            username: 1,
+            subscriberCounts: 1,
+            channelsSubsribedToCount: 1,
+            isSubscribed: 1,
+            avatar: 1,
+            coverImage: 1,
+          },
+        },
+      ]);
+
+      if (!channel?.length) {
+        throw new ApiError(404, "Channel does not exist");
+      }
+
+      redis.setex(redisKey, 30, JSON.stringify(channel)); 
+
+      return res.status(200).json(
+        new ApiResponse(200, channel, "User Channel Fetched Successfully from Database!")
+      );
+    }
+  });
 });
+
 
 //get watch history
 const getWatchHistory = asyncHandler(async (req, res) => {
@@ -334,7 +402,7 @@ const getWatchHistory = asyncHandler(async (req, res) => {
             },
             {
               $addFields: {
-                owner: { $arrayElemAt: ["$owner", 0] }, 
+                owner: { $arrayElemAt: ["$owner", 0] },
               },
             },
           ],
@@ -342,13 +410,15 @@ const getWatchHistory = asyncHandler(async (req, res) => {
       },
     ]);
 
-    return res.status(200).json(
-      new ApiResponse(
-        200,
-        user[0].watchHistory,
-        "WatchHistory fetched Successfully!"
-      )
-    );
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          user[0].watchHistory,
+          "WatchHistory fetched Successfully!"
+        )
+      );
   } catch (error) {
     throw new ApiResponse(401, "Error", error);
   }

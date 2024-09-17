@@ -44,7 +44,7 @@ router
     upload.single("coverImage"),
     coverImageUpdate
   );
-router.route("/c/:username").get(verifyJwt, getUserChannelProf);
+router.route("/c/:username").get(getUserChannelProf);
 router.route("/history").get(verifyJwt, getWatchHistory);
 router.route("/user").get(verifyJwt, getCurrentUser);
 
